@@ -1,1 +1,6 @@
+# Ignoras archivos
 .env
+__pycache__/
+
+# Incluir archivos
+!.env.example
