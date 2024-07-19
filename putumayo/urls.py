@@ -1,3 +1,5 @@
+from rest_framework_simplejwt.views import TokenRefreshView
+from general.auth.auth import AuthView
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
@@ -17,9 +19,11 @@ schema_view = get_schema_view(
    public=True,
    
 )
-""" path('api/', include('hacienda.urls')), """
+
 urlpatterns = [
     path('', views.index, name='index'),
     path('admin/', admin.site.urls),
+    path('api/auth/token/access/', AuthView.as_view()),
+    path('api/auth/token/refresh/', TokenRefreshView.as_view()),
     path('api/', include('general.urls')),
 ]

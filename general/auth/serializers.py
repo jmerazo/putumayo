@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Auth, Role, Group, Permission, RolePermission, GroupRole, UserGroup, UserModule, UserModulePermission, Module
+from .models import Auth, Role, Group, Permission, RolePermission, GroupRole, UserGroup, UserModule, UserModulePermission, Module, Submodule
 from ..person.serializers import PersonSerializer
 
 class RoleSerializer(serializers.ModelSerializer):
@@ -41,10 +41,23 @@ class UserGroupSerializer(serializers.ModelSerializer):
         model = UserGroup
         fields = '__all__'
 
+class SubmoduleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Submodule
+        fields = '__all__'
+
 class ModuleSerializer(serializers.ModelSerializer):
+    submodules = SubmoduleSerializer(many=True, read_only=True)
+    permissions = serializers.SerializerMethodField()
+
     class Meta:
         model = Module
-        fields = '__all__'
+        fields = ['id', 'name', 'route', 'icon', 'submodules', 'permissions']
+    
+    def get_permissions(self, obj):
+        user_id = self.context.get('user_id')
+        permissions = Permission.objects.filter(usermodulepermission__ump_auth=user_id, usermodulepermission__ump_module=obj)
+        return PermissionSerializer(permissions, many=True).data
 
 class UserModuleSerializer(serializers.ModelSerializer):
     um_auth = serializers.PrimaryKeyRelatedField(queryset=Auth.objects.all())
@@ -67,7 +80,13 @@ class AuthSerializer(serializers.ModelSerializer):
     a_person = PersonSerializer()
     a_rol = RoleSerializer()
     a_group = GroupSerializer(many=True)
+    modules = serializers.SerializerMethodField()
 
     class Meta:
         model = Auth
-        fields = ['a_person', 'a_rol', 'a_group']
+        fields = ['a_person', 'a_rol', 'a_group', 'modules']
+    
+    def get_modules(self, obj):
+        user_modules = UserModule.objects.filter(um_auth=obj)
+        modules = [user_module.um_module for user_module in user_modules]
+        return ModuleSerializer(modules, many=True, context={'user_id': obj.id}).data

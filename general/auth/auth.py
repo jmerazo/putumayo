@@ -1,40 +1,57 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth.models import User
-from django.contrib.auth import authenticate
-from rest_framework.permissions import IsAuthenticated
-from .models import Auth, Permission, Group, UserGroup, Module, UserModule, UserModulePermission
+from .models import Auth
+from .models import Auth, Permission, Group, UserGroup, Module, Submodule
 from ..person.models import Person
-from .serializers import AuthSerializer, PermissionSerializer, ModuleSerializer
-from ..person.serializers import PersonSerializer
+from .serializers import AuthSerializer, PermissionSerializer, ModuleSerializer, SubmoduleSerializer
 from ..utils.models import TypeDocuments, Departments, Cities
 import bcrypt
 
-class AuthView(APIView):
+def generate_tokens_for_user(user_id):
+    refresh = RefreshToken()
+    refresh['user_id'] = user_id
+    access = refresh.access_token
+    return {
+        'refresh': str(refresh),
+        'access': str(access),
+    }
+
+class AuthView(TokenObtainPairView):
     permission_classes = []
 
     def post(self, request, *args, **kwargs):
         email = request.data.get('email')
         password = request.data.get('password')
-        print('DATA AUTH: ', email, " ", password)
+
         try:
             # Buscar el registro de autenticación que corresponda al email
             auth_record = Auth.objects.select_related('a_person').get(a_person__email=email)
+
             if bcrypt.checkpw(password.encode('utf-8'), auth_record.password.encode('utf-8')):
-                # Crear el token JWT para el usuario autenticado
-                user = User.objects.get(email=email)
-                refresh = RefreshToken.for_user(user)
+                person = auth_record.a_person
+
+                # Generar los tokens JWT
+                tokens = generate_tokens_for_user(auth_record.id)
+
                 return Response({
-                    'refresh': str(refresh),
-                    'access': str(refresh.access_token),
-                    'userId': auth_record.a_person.id
+                    'refresh': tokens['refresh'],
+                    'access': tokens['access'],
+                    'authId': auth_record.id,
+                    'email': person.email,
+                    'first_name': person.first_name,
+                    'last_name': person.last_name,
+                    'cellphone': person.cellphone,
+                    'address': person.address
                 }, status=status.HTTP_200_OK)
             else:
                 return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
         except Auth.DoesNotExist:
             return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+        except Exception as e:
+            return Response({'error': 'Something went wrong'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 class AuthRegisterView(APIView):
     permission_classes = []
@@ -108,26 +125,29 @@ class AuthRegisterView(APIView):
         return Response({'message': 'User registered successfully'}, status=status.HTTP_201_CREATED)
     
 class UserModulesPermissionsView(APIView):
-    permission_classes = [IsAuthenticated]
+    def get(self, request, pk, *args, **kwargs):
+        try:
+            user = Auth.objects.get(a_person__id=pk)
+            modules = Module.objects.filter(usermodule__um_auth=user)
+            module_permissions = []
 
-    def get(self, request, *args, **kwargs):
-        user_id = request.user.id
-        user = Auth.objects.get(a_person__id=user_id)
-        modules = Module.objects.filter(usermodule__um_auth=user)
-        module_permissions = []
+            for module in modules:
+                submodules = Submodule.objects.filter(sm_module=module)
+                permissions = Permission.objects.filter(usermodulepermission__ump_auth=user, usermodulepermission__ump_module=module)
+                module_permissions.append({
+                    'module': ModuleSerializer(module).data,
+                    'submodules': SubmoduleSerializer(submodules, many=True).data,
+                    'permissions': PermissionSerializer(permissions, many=True).data
+                })
 
-        for module in modules:
-            permissions = Permission.objects.filter(usermodulepermission__ump_auth=user, usermodulepermission__ump_module=module)
-            module_permissions.append({
-                'module': ModuleSerializer(module).data,
-                'permissions': PermissionSerializer(permissions, many=True).data
-            })
-
-        return Response(module_permissions)
+            return Response(module_permissions, status=status.HTTP_200_OK)
+        except Auth.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            print(f"Unexpected error: {str(e)}")  # Depuración
+            return Response({'error': 'Something went wrong', 'details': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class UsersGroupView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def get(self, request, *args, **kwargs):
         group_name = request.query_params.get('idgroup')
         group = Group.objects.get(name=group_name)

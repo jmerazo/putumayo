@@ -61,10 +61,22 @@ class UserGroup(models.Model):
 
 class Module(models.Model):
     name = models.CharField(max_length=50, blank=False, null=False)
+    route = models.CharField(max_length=50, blank=False, null=False)
+    icon = models.CharField(max_length=100, blank=False, null=False)
 
     class Meta:
         managed = True
         db_table = 'modules'
+
+class Submodule(models.Model):
+    name = models.CharField(max_length=50, blank=False, null=False)
+    route = models.CharField(max_length=50, blank=False, null=False)
+    icon = models.CharField(max_length=100, blank=False, null=False)
+    sm_module = models.ForeignKey(Module, on_delete=models.RESTRICT, related_name='submodules')
+
+    class Meta:
+        managed = True
+        db_table = 'submodules'
 
 class UserModule(models.Model):
     um_auth = models.ForeignKey(Auth, on_delete=models.CASCADE)
@@ -82,5 +94,5 @@ class UserModulePermission(models.Model):
 
     class Meta:
         managed = True
-        db_table = 'user_module_permissions'
+        db_table = 'user_module_permission'
         unique_together = ('ump_auth', 'ump_module', 'ump_permission')     
