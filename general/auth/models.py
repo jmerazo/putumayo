@@ -1,5 +1,5 @@
 from django.db import models
-from ..person.models import Person
+from ..person.models import Person, Dependencies, Subdependencies
 
 class Role(models.Model):
     name = models.CharField(max_length=50, blank=False, null=False)
@@ -19,7 +19,11 @@ class Auth(models.Model):
     a_person = models.ForeignKey(Person, on_delete=models.RESTRICT)
     password = models.CharField(max_length=250, null=False, blank=False)
     a_rol = models.ForeignKey(Role, on_delete=models.RESTRICT)
+    a_dependencie = models.ForeignKey(Dependencies, on_delete=models.RESTRICT)
+    a_subdependencie = models.ForeignKey(Subdependencies, on_delete=models.RESTRICT)
     a_group = models.ManyToManyField(Group, through='UserGroup')
+    picture = models.CharField(max_length=250, null=True, blank=True)
+    is_active = models.SmallIntegerField(null=False, blank=False)
 
     class Meta:
         managed = True

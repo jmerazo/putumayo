@@ -12,8 +12,29 @@ class Person(models.Model):
     address = models.CharField(max_length=100, null=True, blank=True)
     p_department = models.ForeignKey(Departments, on_delete=models.RESTRICT)
     p_city = models.ForeignKey(Cities, on_delete=models.RESTRICT)
-    picture = models.CharField(max_length=250, null=False, blank=False)
 
     class Meta:
         managed = True
         db_table = 'Person'
+
+# Create your models here.
+class Dependencies(models.Model):
+    name = models.CharField(max_length=80)
+    d_person = models.ForeignKey(Person, null=True, on_delete=models.RESTRICT)
+    acronym = models.CharField(max_length=30)
+
+    class Meta:
+        managed = True
+        db_table = 'dependencies'
+
+    def __str__(self):
+        return self.name
+
+class Subdependencies(models.Model):
+    name = models.CharField(max_length=80, blank=False, null=False)
+    dependencie = models.ForeignKey(Dependencies, on_delete=models.RESTRICT)
+    acronym = models.CharField(max_length=5, blank=True, null=True)
+
+    class Meta:
+        managed = True
+        db_table = 'subdependencies'

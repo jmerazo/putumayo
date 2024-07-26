@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import Auth, Role, Group, Permission, RolePermission, GroupRole, UserGroup, UserModule, UserModulePermission, Module, Submodule
-from ..person.serializers import PersonSerializer
+from ..person.serializers import PersonSerializer, DependenciesSerializer, SubdependenciesSerializer
 
 class RoleSerializer(serializers.ModelSerializer):
     class Meta:
@@ -59,6 +59,20 @@ class ModuleSerializer(serializers.ModelSerializer):
         permissions = Permission.objects.filter(usermodulepermission__ump_auth=user_id, usermodulepermission__ump_module=obj)
         return PermissionSerializer(permissions, many=True).data
 
+class SubmoduleGetSerializer(serializers.ModelSerializer):
+    sm_module = ModuleSerializer()
+    
+    class Meta:
+        model = Submodule
+        fields = '__all__'
+    
+class SubmoduleCreateSerializer(serializers.ModelSerializer):
+    sm_module = serializers.PrimaryKeyRelatedField(queryset=Module.objects.all())
+
+    class Meta:
+        model = Submodule
+        fields = '__all__'
+
 class UserModuleSerializer(serializers.ModelSerializer):
     um_auth = serializers.PrimaryKeyRelatedField(queryset=Auth.objects.all())
     um_module = ModuleSerializer()
@@ -78,13 +92,15 @@ class UserModulePermissionSerializer(serializers.ModelSerializer):
 
 class AuthSerializer(serializers.ModelSerializer):
     a_person = PersonSerializer()
+    a_dependencie = DependenciesSerializer()
+    a_subdependencie = SubdependenciesSerializer()
     a_rol = RoleSerializer()
     a_group = GroupSerializer(many=True)
     modules = serializers.SerializerMethodField()
 
     class Meta:
         model = Auth
-        fields = ['a_person', 'a_rol', 'a_group', 'modules']
+        fields = ['a_person', 'a_dependencie', 'a_subdependencie', 'a_rol', 'a_group', 'modules']
     
     def get_modules(self, obj):
         user_modules = UserModule.objects.filter(um_auth=obj)
