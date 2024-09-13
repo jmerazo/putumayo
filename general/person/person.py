@@ -24,14 +24,19 @@ class PersonView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     def put(self, request, pk, format=None):
-        dependencie = get_object_or_404(Person, id=pk)
-        serializer = PersonSerializer(dependencie, data=request.data)
+        person = get_object_or_404(Person, id=pk)
+        serializer = PersonCreateSerializer(person, data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     def delete(self, request, pk, format=None):
-        dependencie = PersonSerializer(Person, id=pk)
-        dependencie.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        try:
+            person = Person.objects.get(pk=pk)
+            person.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Person.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

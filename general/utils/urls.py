@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import DepartmentsView, CitiesView, TypeDocumentsView, RoleView, GroupView, ModuleView, SubmoduleView, PermissionView, DependenciesView, SubdependenciesView
+from .views import DepartmentsView, CitiesView, TypeDocumentsView, RoleView, GroupView, ModuleView, SubmoduleView, PermissionView, DependenciesView, SubdependenciesView, CalendarEventsView, NewsView, NewsCategoryView
 
 urlpatterns = [
     path('departments/', DepartmentsView.as_view()),
@@ -20,4 +20,10 @@ urlpatterns = [
     path('dependencies/<int:pk>', DependenciesView.as_view()),
     path('subdependencies/', SubdependenciesView.as_view()),
     path('subdependencies/<int:pk>', SubdependenciesView.as_view()),
+    path('calendar/events/', CalendarEventsView.as_view()),
+    path('calendar/events/dependencies/<int:pk>', CalendarEventsView.as_view()),
+    path('calendar/events/subdependencies/<int:pk>', CalendarEventsView.as_view(), {'subdependency': True}),
+    path('news/', NewsView.as_view()),
+    path('news/<int:pk>/', NewsView.as_view()),
+    path('news/category/', NewsCategoryView.as_view()),
 ]

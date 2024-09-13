@@ -1,3 +1,4 @@
+import bcrypt
 from rest_framework import serializers
 from .models import Auth, Role, Group, Permission, RolePermission, GroupRole, UserGroup, UserModule, UserModulePermission, Module, Submodule
 from ..person.serializers import PersonSerializer, DependenciesSerializer, SubdependenciesSerializer
@@ -61,7 +62,7 @@ class ModuleSerializer(serializers.ModelSerializer):
 
 class SubmoduleGetSerializer(serializers.ModelSerializer):
     sm_module = ModuleSerializer()
-    
+
     class Meta:
         model = Submodule
         fields = '__all__'
@@ -100,9 +101,25 @@ class AuthSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Auth
-        fields = ['a_person', 'a_dependencie', 'a_subdependencie', 'a_rol', 'a_group', 'modules']
+        fields = ['id', 'a_person', 'a_dependencie', 'a_subdependencie', 'a_rol', 'a_group', 'modules']
     
     def get_modules(self, obj):
         user_modules = UserModule.objects.filter(um_auth=obj)
         modules = [user_module.um_module for user_module in user_modules]
         return ModuleSerializer(modules, many=True, context={'user_id': obj.id}).data
+    
+class PasswordUpdateSerializer(serializers.Serializer):
+    password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
+
+    def validate(self, data):
+        if data['password'] != data['confirm_password']:
+            raise serializers.ValidationError("Passwords do not match.")
+        return data
+
+    def update(self, instance, validated_data):
+        password = validated_data['password']
+        hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        instance.password = hashed_password
+        instance.save()
+        return instance

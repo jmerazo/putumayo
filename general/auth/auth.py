@@ -1,13 +1,17 @@
+import bcrypt
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from django.db import transaction
+from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Auth, Permission, Group, UserGroup, Module, Submodule, Role, UserModulePermission, UserModule
+
+from .models import Auth, Permission, Group, UserGroup, Module, Submodule, Role, UserModulePermission, UserModule, UserSubmodule, UserSubmodulePermission
 from ..person.models import Person, Dependencies, Subdependencies
-from .serializers import AuthSerializer, PermissionSerializer, ModuleSerializer, SubmoduleSerializer
+from .serializers import AuthSerializer, PermissionSerializer, ModuleSerializer, SubmoduleSerializer, PasswordUpdateSerializer
 from ..utils.models import TypeDocuments, Departments, Cities
-import bcrypt
 
 def generate_tokens_for_user(user_id):
     refresh = RefreshToken()
@@ -19,8 +23,6 @@ def generate_tokens_for_user(user_id):
     }
 
 class AuthView(TokenObtainPairView):
-    permission_classes = []
-
     def post(self, request, *args, **kwargs):
         email = request.data.get('email')
         password = request.data.get('password')
@@ -56,6 +58,7 @@ class AuthRegisterView(APIView):
     permission_classes = []
 
     def post(self, request, *args, **kwargs):
+        # Obtener datos del request
         p_doc_type = request.data.get('p_doc_type')
         doc_number = request.data.get('doc_number')
         first_name = request.data.get('first_name')
@@ -74,7 +77,8 @@ class AuthRegisterView(APIView):
         a_group = request.data.get('a_group')
         ump_modules = request.data.get('ump_module', [])
         module_permissions = request.data.get('module_permissions', {})
-        #print('data save user: ', p_doc_type, doc_number, first_name, last_name, email, password, cellphone, address, p_department, p_city, picture, is_active, a_dependencie, a_subdependencie, a_rol, a_group, ump_modules, module_permissions)
+        selected_submodules = request.data.get('selected_submodules', {})
+        submodule_permissions = request.data.get('submodule_permissions', {})
 
         if not all([first_name, last_name, email, password, p_doc_type, doc_number, cellphone, address, p_department, p_city, is_active, a_dependencie, a_rol, a_group]):
             return Response({'error': 'All fields are required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -131,7 +135,6 @@ class AuthRegisterView(APIView):
                 module_instance = Module.objects.get(id=module_id)
                 UserModule.objects.create(um_auth=auth_instance, um_module=module_instance)
                 
-                # Obtener permisos para este módulo
                 permissions = module_permissions.get(str(module_id), [])
                 for permission_id in permissions:
                     try:
@@ -142,12 +145,47 @@ class AuthRegisterView(APIView):
             except Module.DoesNotExist:
                 return Response({'error': 'Invalid module ID: ' + str(module_id)}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Inserción en UserSubmodulePermission
+        for module_id, submodules in selected_submodules.items():
+            for submodule in submodules:
+                submodule_id = submodule if isinstance(submodule, int) else submodule.get('id', None)
+                if submodule_id is None:
+                    return Response({'error': f'Invalid submodule data: {submodule}'}, status=status.HTTP_400_BAD_REQUEST)
+                try:
+                    submodule_instance = Submodule.objects.get(id=submodule_id)
+                    user_submodule, created = UserSubmodule.objects.get_or_create(
+                        usm_auth=auth_instance,
+                        usm_submodule=submodule_instance
+                    )
+
+                    sub_permissions = submodule_permissions.get(str(module_id), {}).get(str(submodule_id), [])
+                    for permission_id in sub_permissions:
+                        if isinstance(permission_id, str):
+                            permission_id = int(permission_id)
+
+                        if permission_id is None:
+                            return Response({'error': f'Invalid permission data: {permission_id}'}, status=status.HTTP_400_BAD_REQUEST)
+
+                        try:
+                            permission_instance = Permission.objects.get(id=permission_id)
+                            UserSubmodulePermission.objects.get_or_create(
+                                usp_auth=auth_instance,
+                                usp_submodule=submodule_instance,
+                                usp_permission=permission_instance
+                            )
+                        except Permission.DoesNotExist:
+                            return Response({'error': 'Invalid submodule permission ID: ' + str(permission_id)}, status=status.HTTP_400_BAD_REQUEST)
+                except Submodule.DoesNotExist:
+                    return Response({'error': 'Invalid submodule ID: ' + str(submodule_id)}, status=status.HTTP_400_BAD_REQUEST)
+
         return Response({'message': 'User registered successfully'}, status=status.HTTP_201_CREATED)
 
 class UserModulesPermissionsView(APIView):
+    authentication_classes = []  # Desactivar la autenticación
+    permission_classes = []  # Desactivar los permisos
     def get(self, request, pk, *args, **kwargs):
         try:
-            user = Auth.objects.get(a_person__id=pk)
+            user = Auth.objects.get(id=pk)
             modules = Module.objects.filter(usermodule__um_auth=user)
             module_permissions = []
 
@@ -166,6 +204,110 @@ class UserModulesPermissionsView(APIView):
         except Exception as e:
             print(f"Unexpected error: {str(e)}")  # Depuración
             return Response({'error': 'Something went wrong', 'details': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    def put(self, request, pk, *args, **kwargs):
+        try:
+            print('id: ', pk)
+            print('data user: ', request.data)
+            user = Auth.objects.get(id=pk)
+            
+            # Obtener los datos del request
+            new_module_permissions = request.data.get('module_permissions', {})
+            new_submodule_permissions = request.data.get('submodule_permissions', {})
+            a_rol = request.data.get('a_rol')
+            is_active = request.data.get('is_active')
+            a_dependencie = request.data.get('a_dependencie')
+            a_subdependencie = request.data.get('a_subdependencie')
+
+            with transaction.atomic():
+                # Actualizar los campos básicos del usuario
+                user.a_rol_id = a_rol
+                user.is_active = is_active
+                user.a_dependencie_id = a_dependencie
+                user.a_subdependencie_id = a_subdependencie
+                user.save()
+
+                # Actualizar módulos
+                current_modules = set(UserModule.objects.filter(um_auth=user).values_list('um_module_id', flat=True))
+                new_modules = set(map(int, new_module_permissions.keys()))
+                modules_to_remove = current_modules - new_modules
+                modules_to_add = new_modules - current_modules
+
+                # Eliminar módulos y permisos asociados que ya no están presentes
+                for module_id in modules_to_remove:
+                    UserModule.objects.filter(um_auth=user, um_module_id=module_id).delete()
+                    UserModulePermission.objects.filter(ump_auth=user, ump_module_id=module_id).delete()
+
+                # Agregar nuevos módulos y permisos asociados
+                for module_id in modules_to_add:
+                    module_instance = Module.objects.get(id=module_id)
+                    UserModule.objects.create(um_auth=user, um_module=module_instance)
+
+                # Actualizar permisos de los módulos presentes
+                for module_id, permissions in new_module_permissions.items():
+                    module_instance = Module.objects.get(id=int(module_id))
+                    current_permissions = UserModulePermission.objects.filter(ump_auth=user, ump_module=module_instance)
+                    current_permission_ids = current_permissions.values_list('ump_permission_id', flat=True)
+
+                    # Eliminar permisos que ya no están presentes
+                    for current_permission in current_permissions:
+                        if current_permission.ump_permission_id not in permissions:
+                            current_permission.delete()
+
+                    # Agregar nuevos permisos
+                    for permission_id in permissions:
+                        if permission_id not in current_permission_ids:
+                            permission_instance = Permission.objects.get(id=permission_id)
+                            UserModulePermission.objects.create(
+                                ump_auth=user,
+                                ump_module=module_instance,
+                                ump_permission=permission_instance
+                            )
+
+                # Actualizar submódulos y sus permisos
+                current_submodules = set(UserSubmodule.objects.filter(usm_auth=user).values_list('usm_submodule_id', flat=True))
+                new_submodules = set(map(int, new_submodule_permissions.keys()))
+                submodules_to_remove = current_submodules - new_submodules
+                submodules_to_add = new_submodules - current_submodules
+
+                # Eliminar submódulos y permisos asociados que ya no están presentes
+                for submodule_id in submodules_to_remove:
+                    UserSubmodule.objects.filter(usm_auth=user, usm_submodule_id=submodule_id).delete()
+                    UserSubmodulePermission.objects.filter(usp_auth=user, usp_submodule_id=submodule_id).delete()
+
+                # Agregar nuevos submódulos y permisos asociados
+                for submodule_id in submodules_to_add:
+                    submodule_instance = Submodule.objects.get(id=submodule_id)
+                    UserSubmodule.objects.create(usm_auth=user, usm_submodule=submodule_instance)
+
+                # Actualizar permisos de los submódulos presentes
+                for submodule_id, permissions in new_submodule_permissions.items():
+                    submodule_instance = Submodule.objects.get(id=int(submodule_id))
+                    current_permissions = UserSubmodulePermission.objects.filter(usp_auth=user, usp_submodule=submodule_instance)
+                    current_permission_ids = current_permissions.values_list('usp_permission_id', flat=True)
+
+                    # Eliminar permisos que ya no están presentes
+                    for current_permission in current_permissions:
+                        if current_permission.usp_permission_id not in permissions:
+                            current_permission.delete()
+
+                    # Agregar nuevos permisos
+                    for permission_id in permissions:
+                        if permission_id not in current_permission_ids:
+                            permission_instance = Permission.objects.get(id=permission_id)
+                            UserSubmodulePermission.objects.create(
+                                usp_auth=user,
+                                usp_submodule=submodule_instance,
+                                usp_permission=permission_instance
+                            )
+
+            return Response({'msg': 'Permissions updated successfully'}, status=status.HTTP_200_OK)
+        except Auth.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            print(f"Unexpected error: {str(e)}")  # Depuración
+            return Response({'error': 'Something went wrong', 'details': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class UsersGroupView(APIView):
     def get(self, request, *args, **kwargs):
@@ -185,3 +327,31 @@ class UsersView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def delete(self, request, pk, format=None):
+        try:
+            auth = Auth.objects.get(pk=pk)
+            auth.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Auth.DoesNotExist:
+            print(f'User with pk {pk} does not exist.')
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            print(f'Error deleting user: {e}')
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+class UpdatePasswordView(APIView):
+    def put(self, request, pk, *args, **kwargs):
+        try:
+            user = Auth.objects.get(id=pk)
+        except Auth.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = PasswordUpdateSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.update(user, serializer.validated_data)
+            return Response({'msg': 'Password updated successfully'}, status=status.HTTP_200_OK)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    

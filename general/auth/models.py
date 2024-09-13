@@ -91,6 +91,15 @@ class UserModule(models.Model):
         db_table = 'user_modules'
         unique_together = ('um_auth', 'um_module')
 
+class UserSubmodule(models.Model):
+    usm_auth = models.ForeignKey(Auth, on_delete=models.CASCADE)
+    usm_submodule = models.ForeignKey(Submodule, on_delete=models.CASCADE)
+
+    class Meta:
+        managed = True
+        db_table = 'user_submodules'
+        unique_together = ('usm_auth', 'usm_submodule')
+
 class UserModulePermission(models.Model):
     ump_auth = models.ForeignKey(Auth, on_delete=models.CASCADE)
     ump_module = models.ForeignKey(Module, on_delete=models.CASCADE)
@@ -100,3 +109,13 @@ class UserModulePermission(models.Model):
         managed = True
         db_table = 'user_module_permission'
         unique_together = ('ump_auth', 'ump_module', 'ump_permission')     
+
+class UserSubmodulePermission(models.Model):
+    usp_auth = models.ForeignKey(Auth, on_delete=models.CASCADE)
+    usp_submodule = models.ForeignKey(Submodule, on_delete=models.CASCADE)
+    usp_permission = models.ForeignKey(Permission, on_delete=models.CASCADE)
+
+    class Meta:
+        managed = True
+        db_table = 'user_submodule_permission'
+        unique_together = ('usp_auth', 'usp_submodule', 'usp_permission')
